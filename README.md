@@ -12,6 +12,7 @@ This MCP server provides tools for the following Rockfish resources:
 - **Models**: Upload, list, and manage ML models
 - **Projects**: Organize and manage projects
 - **Datasets**: Create and manage datasets
+- **Recommender** (optional): Workflow generation, dataset property detection, and fidelity checking
 
 ## Installation
 
@@ -43,12 +44,22 @@ ROCKFISH_API_KEY=your_api_key_here
 ROCKFISH_BASE_URL=https://api.rockfish.ai
 ```
 
-If you want to use a specific Rockfish Organization and/or Rockfish Project, 
-add the following to the `.env` file too: 
+If you want to use a specific Rockfish Organization and/or Rockfish Project,
+add the following to the `.env` file too:
 
 ```env
 ROCKFISH_ORGANIZATION_ID=your_organization_id_here
 ROCKFISH_PROJECT_ID=your_project_id_here
+```
+
+**Note:** `ROCKFISH_ORGANIZATION_ID` and `ROCKFISH_PROJECT_ID` are **required** to use Recommender tools. Without these, Recommender functionality will not be available.
+
+### Optional: Recommender Service
+
+To customize the Recommender API URL (defaults to `https://console.rockfish.ai/`):
+
+```env
+RECOMMENDER_API_URL=https://console.sunset-beach.rockfish.ai/
 ```
 
 ## Usage
@@ -239,6 +250,19 @@ chmod +x test-mcp.sh
 - `update_dataset`: Update a dataset
 - `delete_dataset`: Delete a dataset
 - `get_dataset_schema`: Get dataset metadata present in its schema
+
+### Recommender Tools
+These tools provide workflow generation and dataset analysis capabilities:
+
+- `recommender_generate_workflow`: Generate a training workflow for a given model
+- `recommender_train_workflow`: Generate a training workflow for a dataset
+- `recommender_evaluate_workflow`: Generate an evaluation workflow for datasets and metrics
+- `recommender_concat_workflow`: Generate a concatenation workflow for multiple datasets
+- `recommender_tabular_properties`: Detect and analyze properties of a tabular dataset (PII, associations)
+- `recommender_timeseries_properties`: Detect and analyze properties of a timeseries dataset (sessions, metadata)
+- `recommender_dataset_fidelity_score`: Calculate fidelity scores between datasets using SQL queries
+- `recommender_sql_fidelity_checks`: Get recommended SQL queries for fidelity checking
+- `recommender_generate_sources`: Generate data generation sources from natural language prompts
 
 ## Development
 
