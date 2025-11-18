@@ -13,6 +13,7 @@ import mcp.server.stdio
 
 from .client import RockfishClient
 from .manta_client import MantaClient
+from .recommender_client import RecommenderClient
 
 load_dotenv()
 
@@ -23,6 +24,7 @@ server = Server("rockfish-mcp")
 # Global client instances
 rockfish_client: Optional[RockfishClient] = None
 manta_client: Optional[MantaClient] = None
+recommender_client: Optional[RecommenderClient] = None
 
 
 @server.list_tools()
@@ -671,6 +673,141 @@ async def handle_list_tools() -> List[types.Tool]:
         ]
         tools.extend(manta_tools)
 
+    # Add Recommender tools (always available)
+    if recommender_client:
+        recommender_tools = [
+            types.Tool(
+                name="recommender_generate_workflow",
+                description="Generate a generation workflow for a given model",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "dataset_name": {"type": "string", "description": "Name for the generated dataset"},
+                        "model_id": {"type": "string", "description": "ID of the model to use for generation"},
+                        "sample_size": {"type": "integer", "description": "Number of samples to generate"},
+                        "sample_matching_sql_query": {"type": "string", "description": "Optional SQL query to match sample distribution"}
+                    },
+                    "required": ["dataset_name", "model_id", "sample_size"]
+                }
+            ),
+            types.Tool(
+                name="recommender_evaluate_workflow",
+                description="Generate an evaluation workflow for datasets and metrics",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "dataset_ids": {"type": "array", "items": {"type": "string"}, "description": "List of dataset IDs to evaluate"},
+                        "metrics": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "metric_name": {"type": "string"},
+                                    "metric_config": {"type": "object"}
+                                }
+                            },
+                            "description": "Optional list of metrics to compute"
+                        }
+                    },
+                    "required": ["dataset_ids"]
+                }
+            ),
+            types.Tool(
+                name="recommender_train_workflow",
+                description="Generate a training workflow for a dataset",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "dataset_id": {"type": "string", "description": "ID of the dataset to train on"}
+                    },
+                    "required": ["dataset_id"]
+                }
+            ),
+            types.Tool(
+                name="recommender_concat_workflow",
+                description="Generate a concatenation workflow for multiple datasets",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "dataset_ids": {"type": "array", "items": {"type": "string"}, "description": "List of dataset IDs to concatenate"},
+                        "dataset_name": {"type": "string", "description": "Name for the concatenated dataset"}
+                    },
+                    "required": ["dataset_ids", "dataset_name"]
+                }
+            ),
+            types.Tool(
+                name="recommender_tabular_properties",
+                description="Detect and analyze properties of a tabular dataset",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "dataset_id": {"type": "string", "description": "ID of the tabular dataset to analyze"},
+                        "detect_pii": {"type": "boolean", "description": "Whether to detect PII", "default": False},
+                        "detect_association_rules": {"type": "boolean", "description": "Whether to detect field associations", "default": False},
+                        "association_threshold": {"type": "number", "description": "Threshold for association rule detection (0-1)", "default": 0.95}
+                    },
+                    "required": ["dataset_id"]
+                }
+            ),
+            types.Tool(
+                name="recommender_timeseries_properties",
+                description="Detect and analyze properties of a timeseries dataset",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "dataset_id": {"type": "string", "description": "ID of the timeseries dataset to analyze"},
+                        "timestamp": {"type": "string", "description": "Name of the timestamp field"},
+                        "session_fields": {"type": "array", "items": {"type": "string"}, "description": "Fields that define sessions", "default": []},
+                        "metadata_fields": {"type": "array", "items": {"type": "string"}, "description": "Fields that contain metadata", "default": []},
+                        "detect_pii": {"type": "boolean", "description": "Whether to detect PII", "default": False},
+                        "detect_metadata_fields": {"type": "boolean", "description": "Whether to auto-detect metadata fields", "default": False},
+                        "detect_association_rules": {"type": "boolean", "description": "Whether to detect field associations", "default": False},
+                        "association_threshold": {"type": "number", "description": "Threshold for association rule detection (0-1)", "default": 0.95}
+                    },
+                    "required": ["dataset_id", "timestamp"]
+                }
+            ),
+            types.Tool(
+                name="recommender_dataset_fidelity_score",
+                description="Calculate fidelity scores between datasets using SQL queries (minimum 2 datasets required)",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "dataset_ids": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "minItems": 2,
+                            "description": "List of dataset IDs to compare (minimum 2)"
+                        }
+                    },
+                    "required": ["dataset_ids"]
+                }
+            ),
+            types.Tool(
+                name="recommender_sql_fidelity_checks",
+                description="Get recommended SQL queries for fidelity checking",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "dataset_ids": {"type": "array", "items": {"type": "string"}, "description": "List of dataset IDs to generate checks for"}
+                    },
+                    "required": ["dataset_ids"]
+                }
+            ),
+            types.Tool(
+                name="recommender_generate_sources",
+                description="Generate data generation sources from natural language prompt",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "prompt": {"type": "string", "description": "Natural language description of what data you want to generate"}
+                    },
+                    "required": ["prompt"]
+                }
+            )
+        ]
+        tools.extend(recommender_tools)
+
     return tools
 
 
@@ -698,6 +835,24 @@ async def handle_call_tool(
                 text=f"Error calling {name}: {str(e)}"
             )]
 
+    # Route Recommender tools to recommender_client
+    if name.startswith("recommender_"):
+        if not recommender_client:
+            return [types.TextContent(
+                type="text",
+                text="Recommender client not initialized. Check ROCKFISH_PROJECT_ID and ROCKFISH_ORGANIZATION_ID."
+            )]
+
+        try:
+            result = await recommender_client.call_endpoint(name, arguments)
+            return [types.TextContent(type="text", text=str(result))]
+        except Exception as e:
+            logger.error(f"Recommender error calling {name}: {e}")
+            return [types.TextContent(
+                type="text",
+                text=f"Error calling {name}: {str(e)}"
+            )]
+
     # Route all other tools to rockfish_client
     if not rockfish_client:
         return [types.TextContent(
@@ -717,7 +872,7 @@ async def handle_call_tool(
 
 
 async def main():
-    global rockfish_client, manta_client
+    global rockfish_client, manta_client, recommender_client
 
     # Initialize Rockfish client
     api_key = os.getenv("ROCKFISH_API_KEY")
@@ -746,7 +901,29 @@ async def main():
         logger.info(f"Manta client initialized with base URL: {manta_base_url}")
     else:
         logger.info("Manta client not initialized (MANTA_BASE_URL not set)")
-    
+
+    # Initialize Recommender client (requires organization_id and project_id)
+    if organization_id and project_id:
+        recommender_api_url = os.getenv("RECOMMENDER_API_URL")
+        if recommender_api_url:
+            recommender_client = RecommenderClient(
+                api_key=api_key,
+                api_url=recommender_api_url,
+                organization_id=organization_id,
+                project_id=project_id
+            )
+            logger.info(f"Recommender client initialized with custom URL: {recommender_api_url}")
+        else:
+            # Use default API URL
+            recommender_client = RecommenderClient(
+                api_key=api_key,
+                organization_id=organization_id,
+                project_id=project_id
+            )
+            logger.info("Recommender client initialized with default URL")
+    else:
+        logger.info("Recommender client not initialized - ROCKFISH_ORGANIZATION_ID and ROCKFISH_PROJECT_ID required")
+
     # Run the server
     async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
         await server.run(
