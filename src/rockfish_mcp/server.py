@@ -13,6 +13,7 @@ import mcp.server.stdio
 
 from .client import RockfishClient
 from .manta_client import MantaClient
+from .sdk_client import RockfishSDKClient
 
 load_dotenv()
 
@@ -23,6 +24,7 @@ server = Server("rockfish-mcp")
 # Global client instances
 rockfish_client: Optional[RockfishClient] = None
 manta_client: Optional[MantaClient] = None
+sdk_client: Optional[RockfishSDKClient] = None
 
 
 @server.list_tools()
@@ -671,6 +673,188 @@ async def handle_list_tools() -> List[types.Tool]:
         ]
         tools.extend(manta_tools)
 
+    # Add SDK-specific tools
+    tools.extend([
+        types.Tool(
+            name="obtain_tabular_dataset_properties",
+            description="Extract properties from a tabular dataset using SDK workflow. Automatically detects PII, association rules, and field properties. Returns dataset ID with properties embedded.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "dataset_id": {"type": "string", "description": "Dataset ID to extract properties from"}
+                },
+                "required": ["dataset_id"]
+            }
+        ),
+        types.Tool(
+            name="obtain_train_config",
+            description="Generate training configuration for synthetic data models. Returns a cached train_config_id for use in build_training_workflow. Supports TabGAN (rf_tab_gan) and TimeGAN (rf_time_gan).",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "dataset_id": {"type": "string", "description": "Dataset ID to generate config for"},
+                    "model_type": {
+                        "type": "string",
+                        "enum": ["rf_tab_gan", "rf_time_gan"],
+                        "description": "Model type: 'rf_tab_gan' for tabular data or 'rf_time_gan' for time-series data"
+                    }
+                },
+                "required": ["dataset_id", "model_type"]
+            }
+        ),
+        types.Tool(
+            name="build_training_workflow",
+            description="Build and start a training workflow using a cached config. Automatically detects model type from train_config structure. Use this after obtaining train_config_id from obtain_train_config.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "dataset_id": {"type": "string", "description": "Dataset ID to train on"},
+                    "train_config_id": {"type": "string", "description": "Config ID from obtain_train_config (retrieves cached config)"}
+                },
+                "required": ["dataset_id", "train_config_id"]
+            }
+        ),
+        types.Tool(
+            name="update_train_config",
+            description="Update training configuration. Modify model hyperparameters (epochs, batch_size, etc.) and/or encoder field classifications (categorical, continuous, ignore). See https://docs.rockfish.ai/model-train.html for config structure.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "train_config_id": {
+                        "type": "string",
+                        "description": "Config ID from obtain_train_config"
+                    },
+                    "updates": {
+                        "type": "object",
+                        "properties": {
+                            "model_config": {
+                                "type": "object",
+                                "description": "Model hyperparameters to update (e.g., epochs, batch_size, g_lr, d_lr)",
+                                "additionalProperties": True
+                            },
+                            "encoder_config": {
+                                "type": "object",
+                                "properties": {
+                                    "metadata": {
+                                        "type": "object",
+                                        "description": "Field name to type mappings. Type: 'categorical', 'continuous', 'ignore', or 'session' (TimeGAN only)",
+                                        "additionalProperties": {"type": "string"}
+                                    },
+                                    "measurements": {
+                                        "type": "object",
+                                        "description": "(TimeGAN only, TODO: not yet implemented) Time-series measurement field classifications",
+                                        "additionalProperties": {"type": "string"}
+                                    }
+                                }
+                            }
+                        },
+                        "description": "Updates to apply: model_config for hyperparameters, encoder_config for field types"
+                    }
+                },
+                "required": ["train_config_id", "updates"]
+            }
+        ),
+        types.Tool(
+            name="get_workflow_status",
+            description="Get the current status of a workflow (CREATED, RUNNING, COMPLETED, FAILED, etc.)",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "workflow_id": {"type": "string", "description": "Workflow ID to check status"}
+                },
+                "required": ["workflow_id"]
+            }
+        ),
+        types.Tool(
+            name="get_workflow_logs",
+            description="Get logs from a workflow execution. Useful for debugging failed workflows.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "workflow_id": {"type": "string", "description": "Workflow ID to get logs from"}
+                },
+                "required": ["workflow_id"]
+            }
+        ),
+        types.Tool(
+            name="get_trained_model_id",
+            description="Extract the trained model ID from a completed training workflow. Only works on COMPLETED or FINALIZED workflows.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "workflow_id": {"type": "string", "description": "Training workflow ID"}
+                },
+                "required": ["workflow_id"]
+            }
+        ),
+        types.Tool(
+            name="start_generation_workflow",
+            description="Start a workflow to generate synthetic data from a trained TabGAN model.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "model_id": {"type": "string", "description": "Trained model ID from get_trained_model_id"}
+                },
+                "required": ["model_id"]
+            }
+        ),
+        types.Tool(
+            name="obtain_synthetic_dataset_id",
+            description="Extract the synthetic dataset ID from a completed generation workflow. Only works on COMPLETED or FINALIZED workflows.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "generation_workflow_id": {"type": "string", "description": "Generation workflow ID from start_generation_workflow"}
+                },
+                "required": ["generation_workflow_id"]
+            }
+        ),
+        types.Tool(
+            name="plot_distribution",
+            description="Generate distribution plot comparing datasets for a specific column. Returns base64-encoded PNG image. Automatically chooses bar plot (categorical) or KDE plot (numerical).",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "dataset_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of dataset IDs to compare (e.g., [real_dataset_id, synthetic_dataset_id])"
+                    },
+                    "column_name": {"type": "string", "description": "Column name to plot distribution for"}
+                },
+                "required": ["dataset_ids", "column_name"]
+            }
+        ),
+        types.Tool(
+            name="get_marginal_distribution_score",
+            description="Calculate marginal distribution score between two datasets (real vs synthetic). Lower score means more similar distributions.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "dataset_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "minItems": 2,
+                        "maxItems": 2,
+                        "description": "Exactly 2 dataset IDs: [real_dataset_id, synthetic_dataset_id]"
+                    }
+                },
+                "required": ["dataset_ids"]
+            }
+        ),
+        types.Tool(
+            name="html_output",
+            description="Generate an HTML report (example/demo tool). Returns HTML content that can be saved to a file.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Name for the HTML report"}
+                },
+                "required": ["name"]
+            }
+        )
+    ])
+
     return tools
 
 
@@ -678,7 +862,66 @@ async def handle_list_tools() -> List[types.Tool]:
 async def handle_call_tool(
     name: str, arguments: Dict[str, Any]
 ) -> List[types.TextContent]:
-    """Handle tool calls to Rockfish API and Manta service."""
+    """Handle tool calls to Rockfish API, SDK, and Manta service."""
+
+    # Route SDK-specific tools to sdk_client
+    sdk_tools = [
+        "obtain_tabular_dataset_properties",
+        "obtain_train_config",
+        "update_train_config",
+        "build_training_workflow",
+        "get_workflow_status",
+        "get_workflow_logs",
+        "get_trained_model_id",
+        "start_generation_workflow",
+        "obtain_synthetic_dataset_id",
+        "plot_distribution",
+        "get_marginal_distribution_score",
+        "html_output"
+    ]
+
+    if name in sdk_tools:
+        if not sdk_client:
+            return [types.TextContent(
+                type="text",
+                text="SDK client not initialized. Please check your API credentials."
+            )]
+
+        try:
+            result = await sdk_client.call_endpoint(name, arguments)
+
+            # Handle image responses (e.g., from plot_distribution)
+            if isinstance(result, dict) and "image" in result and "mimeType" in result:
+                # Return both image and descriptive text
+                response_parts = [
+                    types.ImageContent(
+                        type="image",
+                        data=result["image"],
+                        mimeType=result["mimeType"]
+                    )
+                ]
+
+                # Add descriptive text if available
+                if "column_name" in result:
+                    dataset_count = len(result.get("dataset_ids", []))
+                    description = f"Distribution plot for column '{result['column_name']}'"
+                    if dataset_count > 0:
+                        description += f" comparing {dataset_count} dataset(s)"
+                    response_parts.append(types.TextContent(
+                        type="text",
+                        text=description
+                    ))
+
+                return response_parts
+
+            # Default: return as text
+            return [types.TextContent(type="text", text=str(result))]
+        except Exception as e:
+            logger.error(f"Error calling {name}: {e}")
+            return [types.TextContent(
+                type="text",
+                text=f"Error calling {name}: {str(e)}"
+            )]
 
     # Route Manta tools to manta_client
     if name.startswith("manta_"):
@@ -717,11 +960,11 @@ async def handle_call_tool(
 
 
 async def main():
-    global rockfish_client, manta_client
+    global rockfish_client, manta_client, sdk_client
 
     # Initialize Rockfish client
     api_key = os.getenv("ROCKFISH_API_KEY")
-    base_url = os.getenv("ROCKFISH_BASE_URL", "https://api.rockfish.ai")
+    api_url = os.getenv("ROCKFISH_API_URL", "https://api.rockfish.ai")
     organization_id = os.getenv("ROCKFISH_ORGANIZATION_ID", None)
     project_id = os.getenv("ROCKFISH_PROJECT_ID", None)
 
@@ -731,10 +974,19 @@ async def main():
 
     rockfish_client = RockfishClient(
         api_key=api_key,
-        base_url=base_url,
+        api_url=api_url,
         organization_id=organization_id,
         project_id=project_id
     )
+
+    # Initialize SDK client (always initialized when API key is present)
+    sdk_client = RockfishSDKClient(
+        API_KEY=api_key,
+        API_URL=api_url,
+        ORGANIZATION_ID=organization_id,
+        PROJECT_ID=project_id
+    )
+    logger.info("SDK client initialized")
 
     # Initialize Manta client only if MANTA_BASE_URL is configured
     manta_base_url = os.getenv("MANTA_BASE_URL")
@@ -761,6 +1013,10 @@ async def main():
                 ),
             ),
         )
+
+    # Cleanup connections
+    if sdk_client:
+        await sdk_client.close()
 
 
 def cli():
