@@ -91,44 +91,39 @@ will be used.
   "mcpServers": {
     "rockfish": {
       "command": "/path/to/your/project/.venv/bin/python",
-      "args": ["-m", "rockfish_mcp.server"],
-      "env": {
-        "ROCKFISH_API_KEY": "your_api_key_here",
-        "ROCKFISH_BASE_URL": "https://api.rockfish.ai",
-        "ROCKFISH_ORGANIZATION_ID": "your_organization_id_here",
-        "ROCKFISH_PROJECT_ID": "your_project_id_here"
-      }
+      "args": ["-m", "rockfish_mcp.server"]
     }
   }
 }
 ```
 
+**Note:** Environment variables (API keys, URLs, organization/project IDs) are configured in the `.env` file in the project root, not in `claude_desktop_config.json`.
+
 4. **Update the paths in the configuration:**
    - Replace `/path/to/your/project/.venv/bin/python` with the actual path to your Python executable
-   - Replace `your_api_key_here` with your actual Rockfish API key
-   - Adjust `ROCKFISH_BASE_URL` if you're using a different endpoint
-   - Adjust `ROCKFISH_ORGANIZATION_ID` if you're using a different organization other than the default one
-   - Adjust `ROCKFISH_PROJECT_ID` if you're using a different project other than the default one
+   - All API keys and URLs should be configured in the `.env` file (see step 5)
 
 5. **Get the correct Python path** by running this command in your project directory:
 ```bash
 which python
 ```
 
-6. **Example configuration** (replace with your actual paths and API key):
+6. **Example configuration** (replace with your actual path):
 ```json
 {
   "mcpServers": {
     "rockfish": {
       "command": "/Users/shane/code/rockfish-mcp/.venv/bin/python",
-      "args": ["-m", "rockfish_mcp.server"],
-      "env": {
-        "ROCKFISH_API_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-        "ROCKFISH_BASE_URL": "https://sunset-beach.rockfish.ai"
-      }
+      "args": ["-m", "rockfish_mcp.server"]
     }
   }
 }
+```
+
+Configure your API key and URL in the `.env` file:
+```bash
+ROCKFISH_API_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+ROCKFISH_API_URL=https://sunset-beach.rockfish.ai
 ```
 
 7. **Restart Claude Desktop** after making these changes

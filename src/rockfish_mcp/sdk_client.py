@@ -2,6 +2,7 @@ from rockfish.remote import glue
 import rockfish as rf
 import rockfish.labs as rl
 import rockfish.actions as ra
+import asyncio
 import io
 import base64
 import pyarrow as pa
@@ -184,19 +185,52 @@ class RockfishSDKClient:
             builder = create_workflow([load_action, train_action])
             train_workflow = await builder.start(self._conn)
             return {"train_workflow_id": train_workflow.id()}
-        # elif tool_name == "get_workflow_status":
-        #     workflow_id = arguments["workflow_id"]
-        #     workflow = await self._conn.get_workflow(workflow_id)
-        #     status = await workflow.status()
-        #     return {"workflow_id": workflow_id, "status": status}
-        # elif tool_name == "get_workflow_logs":
-        #     workflow_id = arguments["workflow_id"]
-        #     workflow = await self._conn.get_workflow(workflow_id)
-        #     logs = []
-        #     async for log in workflow.logs():
-        #         logs.append(log)
-        #     # TODOs: it is dynamic?    
-        #     return {"workflow_id": workflow_id, "logs": logs}
+
+        elif tool_name == "get_workflow_logs":
+            workflow_id = arguments["workflow_id"]
+            log_level_str = arguments.get("log_level", "INFO")
+            collection_timeout = arguments.get("timeout", 10)
+
+            # Map string to rf.LogLevel enum
+            log_level_map = {
+                "DEBUG": rf.LogLevel.DEBUG,
+                "INFO": rf.LogLevel.INFO,
+                "WARN": rf.LogLevel.WARN,
+                "ERROR": rf.LogLevel.ERROR
+            }
+            log_level = log_level_map.get(log_level_str, rf.LogLevel.INFO)
+
+            # Get workflow and stream logs
+            workflow = await self._conn.get_workflow(workflow_id)
+            logs = []
+
+            async def collect_logs():
+                nonlocal logs
+                async for log in workflow.logs(level=log_level):
+                    logs.append(str(log))
+
+            try:
+                # Collect logs for specified duration
+                await asyncio.wait_for(collect_logs(), timeout=collection_timeout)
+            except asyncio.TimeoutError:
+                # Expected - collected logs for specified duration
+                pass
+
+            # Build response with helpful messages
+            result = {
+                "workflow_id": workflow_id,
+                "logs": logs,
+                "count": len(logs),
+                "log_level": log_level_str
+            }
+
+            if len(logs) == 0:
+                result["message"] = f"No {log_level_str} logs collected in {collection_timeout}s. Workflow may still be starting. Try waiting longer or increase timeout parameter."
+            else:
+                result["message"] = f"Collected {len(logs)} {log_level_str} logs in {collection_timeout}s. Call again to get more logs if workflow is still running."
+
+            return result
+
         elif tool_name == "get_trained_model_id":
             workflow_id = arguments["workflow_id"]
             workflow = await self._conn.get_workflow(workflow_id)

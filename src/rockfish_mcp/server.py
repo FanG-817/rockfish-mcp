@@ -754,24 +754,33 @@ async def handle_list_tools() -> List[types.Tool]:
                 "required": ["train_config_id", "updates"]
             }
         ),
-        types.Tool(
-            name="get_workflow_status",
-            description="Get the current status of a workflow (CREATED, RUNNING, COMPLETED, FAILED, etc.)",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "workflow_id": {"type": "string", "description": "Workflow ID to check status"}
-                },
-                "required": ["workflow_id"]
-            }
-        ),
+        # types.Tool(
+        #     name="get_workflow_status",
+        #     description="Get the current status of a workflow (CREATED, RUNNING, COMPLETED, FAILED, etc.)",
+        #     inputSchema={
+        #         "type": "object",
+        #         "properties": {
+        #             "workflow_id": {"type": "string", "description": "Workflow ID to check status"}
+        #         },
+        #         "required": ["workflow_id"]
+        #     }
+        # ),
         types.Tool(
             name="get_workflow_logs",
-            description="Get logs from a workflow execution. Useful for debugging failed workflows.",
+            description="Stream logs from a workflow execution with configurable log level and collection timeout. Collects logs for specified duration (default 10s), useful for monitoring workflow progress and debugging. Call repeatedly to continue collecting logs from running workflows.",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "workflow_id": {"type": "string", "description": "Workflow ID to get logs from"}
+                    "workflow_id": {"type": "string", "description": "Workflow ID to get logs from"},
+                    "log_level": {
+                        "type": "string",
+                        "enum": ["DEBUG", "INFO", "WARN", "ERROR"],
+                        "description": "Log level filter. Default: INFO"
+                    },
+                    "timeout": {
+                        "type": "integer",
+                        "description": "Collection duration in seconds. Default: 10"
+                    }
                 },
                 "required": ["workflow_id"]
             }
@@ -870,7 +879,7 @@ async def handle_call_tool(
         "obtain_train_config",
         "update_train_config",
         "build_training_workflow",
-        "get_workflow_status",
+        # "get_workflow_status",
         "get_workflow_logs",
         "get_trained_model_id",
         "start_generation_workflow",
@@ -988,16 +997,16 @@ async def main():
     )
     logger.info("SDK client initialized")
 
-    # Initialize Manta client only if MANTA_BASE_URL is configured
-    manta_base_url = os.getenv("MANTA_BASE_URL")
-    if manta_base_url:
+    # Initialize Manta client only if MANTA_API_URL is configured
+    manta_api_url = os.getenv("MANTA_API_URL")
+    if manta_api_url:
         manta_client = MantaClient(
             api_key=api_key,
-            base_url=manta_base_url
+            base_url=manta_api_url
         )
-        logger.info(f"Manta client initialized with base URL: {manta_base_url}")
+        logger.info(f"Manta client initialized with API URL: {manta_api_url}")
     else:
-        logger.info("Manta client not initialized (MANTA_BASE_URL not set)")
+        logger.info("Manta client not initialized (MANTA_API_URL not set)")
     
     # Run the server
     async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):

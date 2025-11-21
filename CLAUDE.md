@@ -25,8 +25,8 @@ rockfish-mcp
 ### Environment Setup
 The application requires these environment variables:
 - `ROCKFISH_API_KEY`: Your Rockfish API key (required)
-- `ROCKFISH_BASE_URL`: Base URL for Rockfish API (defaults to https://api.rockfish.ai)
-- `MANTA_BASE_URL`: Base URL for Manta service (optional - Manta tools only appear if this is set)
+- `ROCKFISH_API_URL`: API URL for Rockfish API (defaults to https://api.rockfish.ai)
+- `MANTA_API_URL`: API URL for Manta service (optional - Manta tools only appear if this is set)
 
 Create a `.env` file with these variables for local development:
 ```bash
@@ -53,7 +53,7 @@ src/rockfish_mcp/
 - Defines tools across multiple resource categories
   - Rockfish API: Databases, Worker Sets, Workflows, Models, Projects, Datasets (22 tools, always available)
   - Manta Service: Prompt Management, Data Manipulation, LLM Processing (10 tools, conditional)
-- Conditionally loads Manta tools only when `MANTA_BASE_URL` environment variable is set
+- Conditionally loads Manta tools only when `MANTA_API_URL` environment variable is set
 - Handles tool registration via `@server.list_tools()` decorator
 - Routes tool calls through `@server.call_tool()` decorator:
   - Tools prefixed with `manta_` route to `manta_client`
@@ -91,7 +91,7 @@ The server exposes CRUD operations mapping to these endpoints:
 - **Datasets**: `/dataset` endpoints (GET, POST, PATCH, DELETE)
 
 #### Manta Service Endpoints (Optional)
-The Manta service provides dataset testing and pattern injection capabilities. These tools are only available when `MANTA_BASE_URL` is configured:
+The Manta service provides dataset testing and pattern injection capabilities. These tools are only available when `MANTA_API_URL` is configured:
 - **Prompt Management**: `/prompts` endpoints (GET, POST, PATCH)
   - Generate and manage test prompts for datasets
   - Evaluate test case results
@@ -110,7 +110,7 @@ The Manta service provides dataset testing and pattern injection capabilities. T
 - Both clients use a centralized `call_endpoint()` method with if/elif routing for tool dispatch
 - Server initialization:
   - Always creates a global `RockfishClient` instance
-  - Only creates `MantaClient` instance if `MANTA_BASE_URL` environment variable is set
+  - Only creates `MantaClient` instance if `MANTA_API_URL` environment variable is set
   - Manta tools are dynamically added to the tool list only when `manta_client` is initialized
 - Tool routing is handled by checking tool name prefix (`manta_` routes to Manta, others to Rockfish)
 - Tool schemas are defined inline using JSON Schema format directly in the server
