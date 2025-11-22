@@ -11,9 +11,9 @@ logger = logging.getLogger(__name__)
 class RockfishClient:
     """Client for interacting with the Rockfish API."""
     
-    def __init__(self, api_key: str, base_url: str = "https://api.rockfish.ai", organization_id=None, project_id=None):
+    def __init__(self, api_key: str, api_url: str = "https://api.rockfish.ai", organization_id=None, project_id=None):
         self.api_key = api_key
-        self.base_url = base_url.rstrip("/")
+        self.base_url = api_url.rstrip("/")
         self.headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json"
