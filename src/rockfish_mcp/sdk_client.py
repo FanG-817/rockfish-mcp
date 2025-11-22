@@ -5,9 +5,10 @@ import rockfish.actions as ra
 import asyncio
 import io
 import base64
+import math
 import pyarrow as pa
 import pyarrow.compute as pc
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple
 # Set matplotlib to non-interactive backend BEFORE importing pyplot
 # This prevents GUI windows and Python icon from appearing in dock
 import matplotlib
@@ -145,25 +146,59 @@ class RockfishSDKClient:
             # field_properties_map = arguments["field_properties_map"]
             dataset = await get_local_dataset(self._conn, dataset_id)
             # TODO: Add train_config
+            column_metadata = {}
             if model_type == "rf_tab_gan":
-                train_config = get_tab_gan_train_config(dataset)
+                train_config, column_metadata = guess_tab_gan_train_config(dataset)
             elif model_type == "rf_time_gan":
-                pass
-                # metadata = arguments.get("metadata_fields", None)
-                # timestamp = arguments.get("timestamp_fields", None)
-                # train_config = get_time_gan_train_config(dataset, metadata, timestamp)
+                return {
+                    "success": False,
+                    "message": f"Model type 'rf_time_gan' is not yet implemented. Currently only 'rf_tab_gan' is supported.",
+                    "dataset_id": dataset_id,
+                    "model_type": model_type
+                }
             else:
-                raise NotImplementedError(f"Model type {model_type} has not been implemented to get train config")
-            # dataset_properties, field_properties_map = obtain_tab_dataset_properties(dataset)
-            # train_config = rl.steps.get_tab_gan_config(dataset_properties, field_properties_map)
+                return {
+                    "success": False,
+                    "message": f"Model type '{model_type}' is not supported. Currently only 'rf_tab_gan' is supported.",
+                    "dataset_id": dataset_id,
+                    "model_type": model_type
+                }
             # Serialize Config object to dict using Rockfish converter
             train_config_dict = rf.converter.unstructure(train_config)
             config_id = f"config_{uuid.uuid4()}"
             self._cache[config_id] = train_config_dict
-            return {"dataset_id": dataset_id, "train_config_id": config_id, "train_config": train_config_dict}
+
+            # Build response with column metadata and warnings
+            response = {
+                "success": True,
+                "dataset_id": dataset_id,
+                "train_config_id": config_id,
+                "train_config": train_config_dict,
+            }
+
+            # Add warning for high cardinality columns
+            high_card_cols = column_metadata.get("high_cardinality_columns", [])
+            if high_card_cols:
+                warning_msg = (
+                    f"For now, we are ignoring {len(high_card_cols)} high cardinality columns: {high_card_cols}. "
+                    "These columns will be handled in future iterations."
+                )
+                response["warnings"] = [warning_msg]
+
+            return response
         elif tool_name == "build_training_workflow":
             dataset_id = arguments["dataset_id"]
             train_config_id = arguments["train_config_id"]
+
+            # Check if config exists in cache
+            if train_config_id not in self._cache:
+                return {
+                    "success": False,
+                    "message": f"Config ID '{train_config_id}' not found in cache. It may have expired or already been used. Please call obtain_train_config again.",
+                    "dataset_id": dataset_id,
+                    "train_config_id": train_config_id
+                }
+
             train_config = self._cache.pop(train_config_id)
             # https://github.com/Rockfish-Data/SDA/blob/ac10fcb2198f112e65c8fc3210c8e3a56e40a860/src/data_quality_report/check.py#L93-L98
             # Detect model type from config (handle both dict and class instance)
@@ -176,15 +211,17 @@ class RockfishSDKClient:
                 train_config = rf.converter.structure(train_config, ra.TrainTimeGAN.Config)
                 train_action = ra.TrainTimeGAN(train_config)
             else:
-                raise NotImplementedError(
-                    "Unsupported training config. Currently only TabGAN models "
-                    "(configs with 'tabular_gan' field) are supported."
-                )
+                return {
+                    "success": False,
+                    "message": "Unsupported training config format. Currently only RF-Tab-GAN (tabular-gan) and RF-Time-GAN (doppelganger) models are supported.",
+                    "dataset_id": dataset_id,
+                    "train_config_id": train_config_id
+                }
 
             load_action = ra.DatasetLoad(dataset_id=dataset_id)
             builder = create_workflow([load_action, train_action])
             train_workflow = await builder.start(self._conn)
-            return {"train_workflow_id": train_workflow.id()}
+            return {"success": True, "train_workflow_id": train_workflow.id()}
 
         elif tool_name == "get_workflow_logs":
             workflow_id = arguments["workflow_id"]
@@ -236,13 +273,14 @@ class RockfishSDKClient:
             workflow = await self._conn.get_workflow(workflow_id)
             status = await workflow.status()
             if status not in {"completed", "finalized"}:
-                raise ValueError(
-                    f"Workflow {workflow_id} is in {status} state. "
-                    f"This tool only works on COMPLETED or FINALIZED workflows. "
-                    f"Use get_workflow_status to check completion status."
-                )
+                return {
+                    "success": False,
+                    "message": f"Workflow is in '{status}' state. This tool only works on COMPLETED or FINALIZED workflows. Please wait for the workflow to complete.",
+                    "workflow_id": workflow_id,
+                    "status": status
+                }
             model = await workflow.models().last()
-            return {"workflow_id": workflow_id, "model_id": model.id}
+            return {"success": True, "workflow_id": workflow_id, "model_id": model.id}
         elif tool_name =="start_generation_workflow":
             model_id = arguments["model_id"]
             generate_rec = rl.steps.GenerateRecommender(self._conn, model = model_id)
@@ -254,14 +292,15 @@ class RockfishSDKClient:
             generation_workflow = await self._conn.get_workflow(generation_workflow_id)
             status = await generation_workflow.status()
             if status not in {"completed", "finalized"}:
-                raise ValueError(
-                    f"Generation workflow {generation_workflow_id} is in {status} state. "
-                    f"This tool only works on COMPLETED or FINALIZED workflows. "
-                    f"Use get_workflow_status to check completion status."
-                )
-            # TODOs: verify it has multiple generations
+                return {
+                    "success": False,
+                    "message": f"Generation workflow is in '{status}' state. This tool only works on COMPLETED or FINALIZED workflows. Please wait for the workflow to complete.",
+                    "generation_workflow_id": generation_workflow_id,
+                    "status": status
+                }
+            # TODO: what if it has multiple generations
             generated_dataset = await generation_workflow.datasets().last()
-            return {"generation_workflow_id": generation_workflow_id, "generated_dataset_id": generated_dataset.id}
+            return {"success": True, "generation_workflow_id": generation_workflow_id, "generated_dataset_id": generated_dataset.id}
         elif tool_name == "plot_distribution":
             dataset_ids = arguments["dataset_ids"]
             column_name = arguments["column_name"]
@@ -277,12 +316,48 @@ class RockfishSDKClient:
             dataset_ids = arguments["dataset_ids"]
             dataset = await self._conn.get_dataset(dataset_ids[0])
             dataset = await dataset.to_local(self._conn)
+            real_columns = dataset.table.column_names
             synthetic = await self._conn.get_dataset(dataset_ids[1])
             synthetic = await synthetic.to_local(self._conn)
+            syn_columns = synthetic.table.column_names
+
+            # Find common and different columns using set operations
+            real_columns_set = set(real_columns)
+            syn_columns_set = set(syn_columns)
+            common_columns = list(real_columns_set & syn_columns_set)
+            only_in_real = real_columns_set - syn_columns_set
+            only_in_syn = syn_columns_set - real_columns_set
+
+            # Select only common columns from both datasets
+            dataset.table = dataset.table.select(common_columns)
+            synthetic.table = synthetic.table.select(common_columns)
+
+            # Build informative message about excluded columns
+            if only_in_real or only_in_syn:
+                msg_parts = []
+                if only_in_real:
+                    msg_parts.append(f"{', '.join(sorted(only_in_real))} only in real data")
+                if only_in_syn:
+                    msg_parts.append(f"{', '.join(sorted(only_in_syn))} only in synthetic data")
+                msg = f"Columns excluded from evaluation: {'; '.join(msg_parts)}"
+            else:
+                msg = "All columns match between datasets"
+
             marginal_dist_score = rl.metrics.marginal_dist_score(dataset, synthetic)
-            return {
-                "marginal_distribution_score": marginal_dist_score,
-            }
+
+            # Check if score is NaN (happens when datasets have missing values)
+            if math.isnan(marginal_dist_score):
+                return {
+                    "success": False,
+                    "message": "Dataset contains missing values. Marginal distribution score does not currently support datasets with missing values.",
+                    "marginal_distribution_score": None
+                }
+            else:
+                return {
+                    "success": True,
+                    "message": msg,
+                    "marginal_distribution_score": marginal_dist_score,
+                }
         # Example: HTML output generation
         elif tool_name == "html_output":
             name = arguments["name"]
@@ -309,7 +384,11 @@ class RockfishSDKClient:
 
             # Retrieve cached config
             if train_config_id not in self._cache:
-                raise ValueError(f"Unknown train_config_id: {train_config_id}. Ensure obtain_train_config was called first.")
+                return {
+                    "success": False,
+                    "message": f"Config ID '{train_config_id}' not found in cache. It may have expired or already been used. Please call obtain_train_config again.",
+                    "train_config_id": train_config_id
+                }
 
             config_dict = self._cache[train_config_id].copy()
 
@@ -319,7 +398,11 @@ class RockfishSDKClient:
             elif "doppelganger" in config_dict:
                 model_key = "doppelganger"
             else:
-                raise ValueError("Cannot determine model type from config. Supported: 'tabular-gan', 'doppelganger'")
+                return {
+                    "success": False,
+                    "message": "Cannot determine model type from config. Supported model types: 'tabular-gan', 'doppelganger'",
+                    "train_config_id": train_config_id
+                }
 
             changes_applied = {}
 
@@ -328,7 +411,12 @@ class RockfishSDKClient:
                 model_config = updates["model_config"]
                 for field, value in model_config.items():
                     if field not in config_dict[model_key]:
-                        raise ValueError(f"Field '{field}' not found in {model_key} config. Available: {list(config_dict[model_key].keys())}")
+                        return {
+                            "success": False,
+                            "message": f"Field '{field}' not found in {model_key} config. Available fields: {list(config_dict[model_key].keys())}",
+                            "train_config_id": train_config_id,
+                            "invalid_field": field
+                        }
                     old_value = config_dict[model_key][field]
                     config_dict[model_key][field] = value
                     changes_applied[f"{model_key}.{field}"] = {"old": old_value, "new": value}
@@ -349,7 +437,13 @@ class RockfishSDKClient:
                             valid_types.append("session")
 
                         if new_type not in valid_types:
-                            raise ValueError(f"Invalid type '{new_type}' for field '{field_name}'. Valid types: {valid_types}")
+                            return {
+                                "success": False,
+                                "message": f"Invalid type '{new_type}' for field '{field_name}'. Valid types: {valid_types}",
+                                "train_config_id": train_config_id,
+                                "field_name": field_name,
+                                "invalid_type": new_type
+                            }
 
                         # Find and update field in metadata list
                         field_found = False
@@ -365,12 +459,22 @@ class RockfishSDKClient:
 
                         if not field_found:
                             available_fields = [f["field"] for f in metadata]
-                            raise ValueError(f"Field '{field_name}' not found in encoder metadata. Available: {available_fields}")
+                            return {
+                                "success": False,
+                                "message": f"Field '{field_name}' not found in encoder metadata. Available fields: {available_fields}",
+                                "train_config_id": train_config_id,
+                                "field_name": field_name
+                            }
 
                 # Update measurements fields (TimeGAN only)
                 if "measurements" in encoder_config:
                     if model_key != "doppelganger":
-                        raise ValueError("measurements field only supported for TimeGAN (doppelganger) models")
+                        return {
+                            "success": False,
+                            "message": "The 'measurements' field is only supported for TimeGAN (doppelganger) models, not for TabGAN models.",
+                            "train_config_id": train_config_id,
+                            "model_type": model_key
+                        }
 
                     # TODO: Implement measurements update logic similar to metadata
                     # This will iterate through encoder.measurements array and update field types
@@ -378,18 +482,27 @@ class RockfishSDKClient:
                     # measurements = config_dict["encoder"]["measurements"]
                     # for field_name, new_type in measurements_updates.items():
                     #     validate and update like metadata above
-                    raise NotImplementedError("measurements field updates not yet implemented. Coming soon!")
+                    return {
+                        "success": False,
+                        "message": "Measurements field updates are not yet implemented. This feature is coming soon!",
+                        "train_config_id": train_config_id
+                    }
 
             # Update cache with modified config
             self._cache[train_config_id] = config_dict
 
             return {
+                "success": True,
                 "train_config_id": train_config_id,
                 "changes_applied": changes_applied,
                 "train_config": config_dict
             }
         else:
-            raise ValueError(f"Unknown SDK tool: {tool_name}")
+            return {
+                "success": False,
+                "message": f"Unknown SDK tool: '{tool_name}'. This tool is not recognized by the SDK client.",
+                "tool_name": tool_name
+            }
         
 
 async def plot_distribution(conn, dataset_ids: list, column_name: str):
@@ -423,9 +536,10 @@ async def plot_distribution(conn, dataset_ids: list, column_name: str):
     img_base64 = _fig_to_base64(fig)
     return img_base64
 
-def get_tab_gan_train_config(dataset) -> ra.TrainTabGAN.Config:
+def guess_tab_gan_train_config(dataset) -> Tuple[ra.TrainTabGAN.Config, dict]:
     table = dataset.table
     columns = table.column_names
+    high_cardinality_columns = []
     categorical_columns = []
     continuous_columns = []
     for column in columns:
@@ -433,17 +547,30 @@ def get_tab_gan_train_config(dataset) -> ra.TrainTabGAN.Config:
         # mode='only_valid' exclude null values
         nunique = pc.count_distinct(table[column],mode='only_valid').as_py()
         if dtype in {"string", "bool"}:
-            categorical_columns.append(column)
-        # TODO: can manually update the threshold    
+            if nunique <=100:
+                categorical_columns.append(column)
+            else:
+                # TODO: it is likely to be OOM so for now, we ignore them in train config.
+                # Later, we could do resampling or label encoder to handle them
+                high_cardinality_columns.append(column)
+        # TODO: can manually update the threshold
         elif nunique <=10:
             categorical_columns.append(column)
         else:
             continuous_columns.append(column)
-    # TODO: handle some edge case
-    # index columns using integer, single-value columns
+    # TODO: handle some special case
+    # index columns using integer, single-value columns (might need to ask customer to confirm to make decision)
     encoder_config = ra.TrainTabGAN.DatasetConfig(
         metadata=[ra.TrainTabGAN.FieldConfig(field=col, type="categorical") for col in categorical_columns]
+        + [ra.TrainTabGAN.FieldConfig(field=col, type="ignore") for col in high_cardinality_columns]
         + [ra.TrainTabGAN.FieldConfig(field=col, type="continuous") for col in continuous_columns])
     model_config = ra.TrainTabGAN.TrainConfig(epochs=100)
     train_config = ra.TrainTabGAN.Config(encoder=encoder_config, tabular_gan=model_config)
-    return train_config
+
+    # Return config and column metadata
+    column_metadata = {
+        "categorical_columns": categorical_columns,
+        "continuous_columns": continuous_columns,
+        "high_cardinality_columns": high_cardinality_columns
+    }
+    return train_config, column_metadata
