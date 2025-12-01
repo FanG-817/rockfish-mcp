@@ -7,7 +7,7 @@ checking business logic rules, parameter constraints, and semantic relationships
 Validation Layers:
 1. Structure validation (rf.converter.structure) - type checking, required fields, enums
 2. Parameter validation (this module) - ranges, constraints, logical consistency
-3. Business logic validation (this module) - R1-R10 rules
+3. Business logic validation (this module) - R1-R12 rules
 4. Graph validation (planner) - circular dependencies
 
 Usage:
@@ -130,7 +130,7 @@ class DataSchemaValidator:
                     rule="PARAM_ID_01",
                     message=f"IDParams template_str must contain '{{id}}' placeholder, got: '{params.template_str}'",
                     location=location,
-                    suggestion="Use a template like 'USER_{{id}}' or 'item-{{id}}'",
+                    suggestion="Use a template like 'USER_{id}' or 'item-{id}'",
                 )
             )
 
@@ -224,6 +224,30 @@ class DataSchemaValidator:
                         message=f"TimeseriesParams peak_start_hour ({params.peak_start_hour}) must be less than peak_end_hour ({params.peak_end_hour})",
                         location=location,
                         suggestion="Use values like peak_start_hour=8, peak_end_hour=22 for business hours",
+                    )
+                )
+
+            # PARAM_TS_07: peak_start_hour must be in [0, 23]
+            if not (0 <= params.peak_start_hour <= 23):
+                self.errors.append(
+                    ValidationError(
+                        level=ValidationLevel.ERROR,
+                        rule="PARAM_TS_07",
+                        message=f"TimeseriesParams peak_start_hour must be in [0, 23], got: {params.peak_start_hour}",
+                        location=location,
+                        suggestion="Use a valid hour value between 0 (midnight) and 23 (11 PM)",
+                    )
+                )
+
+            # PARAM_TS_08: peak_end_hour must be in [0, 23]
+            if not (0 <= params.peak_end_hour <= 23):
+                self.errors.append(
+                    ValidationError(
+                        level=ValidationLevel.ERROR,
+                        rule="PARAM_TS_08",
+                        message=f"TimeseriesParams peak_end_hour must be in [0, 23], got: {params.peak_end_hour}",
+                        location=location,
+                        suggestion="Use a valid hour value between 0 (midnight) and 23 (11 PM)",
                     )
                 )
 
@@ -471,7 +495,7 @@ class DataSchemaValidator:
                 self.errors.append(
                     ValidationError(
                         level=ValidationLevel.ERROR,
-                        rule="COL_DERIVED_01",
+                        rule="R11",
                         message=f"MEASUREMENT derived column '{column.name}' cannot depend on another MEASUREMENT column '{dep_col_name}' in the same entity (currently unsupported)",
                         location=location,
                         suggestion=f"Change '{dep_col_name}' to column_category_type='metadata', OR restructure to avoid MEASUREMENT->MEASUREMENT dependencies",
@@ -479,11 +503,11 @@ class DataSchemaValidator:
                 )
 
     # =========================================================================
-    # Business Logic Validation (R1-R10)
+    # Business Logic Validation (R1-R12)
     # =========================================================================
 
     def _validate_business_rules(self):
-        """Validate R1-R10 business logic rules."""
+        """Validate R1-R12 business logic rules."""
         # R1: If any entity has Timestamp → GlobalTimestamp required
         entities_with_timestamps = [
             e.name for e in self.schema.entities if e.timestamp is not None
@@ -499,7 +523,7 @@ class DataSchemaValidator:
                 )
             )
 
-        # R2-R6: Column-level rules (validated per column)
+        # R2-R5, R10-R12: Column-level rules (validated per column)
         for entity in self.schema.entities:
             for column in entity.columns:
                 loc = f"entity '{entity.name}' > column '{column.name}'"
@@ -574,7 +598,7 @@ class DataSchemaValidator:
                 )
 
     def _validate_column_business_rules(self, column: Column, location: str):
-        """Validate business rules R2-R5, R10 for a single column."""
+        """Validate business rules R2-R5, R10-R12 for a single column."""
         # R2: STATEFUL → must be MEASUREMENT
         if column.column_type == ColumnType.STATEFUL:
             if column.column_category_type != ColumnCategoryType.MEASUREMENT:
@@ -633,6 +657,21 @@ class DataSchemaValidator:
                         suggestion="Change column_category_type to 'metadata'",
                     )
                 )
+
+        # R12: MEASUREMENT columns cannot be INDEPENDENT (currently unsupported)
+        if (
+            column.column_category_type == ColumnCategoryType.MEASUREMENT
+            and column.column_type == ColumnType.INDEPENDENT
+        ):
+            self.errors.append(
+                ValidationError(
+                    level=ValidationLevel.ERROR,
+                    rule="R12",
+                    message=f"MEASUREMENT column cannot be INDEPENDENT (currently unsupported)",
+                    location=location,
+                    suggestion="Change column_type to 'stateful' for time-varying measurements, or change column_category_type to 'metadata' for static values",
+                )
+            )
 
         # R10: Column has EXACTLY ONE: domain OR derivation OR neither (FK only)
         has_domain = column.domain is not None
@@ -814,6 +853,18 @@ class DataSchemaValidator:
                 )
             )
 
+        # GT_02: t_start < t_end
+        if gt.t_start >= gt.t_end:
+            self.errors.append(
+                ValidationError(
+                    level=ValidationLevel.ERROR,
+                    rule="GT_02",
+                    message=f"GlobalTimestamp t_start ({gt.t_start}) must be less than t_end ({gt.t_end})",
+                    location=loc,
+                    suggestion="Ensure start time is before end time",
+                )
+            )
+
 
 # =============================================================================
 # Public API
@@ -827,8 +878,8 @@ def validate_dataschema_comprehensive(
     Run comprehensive validation on a DataSchema.
 
     This performs validation beyond rf.converter.structure(), checking:
-    - Parameter ranges and constraints (54 rules)
-    - Business logic rules (R1-R10)
+    - Parameter ranges and constraints (30 rules)
+    - Business logic rules (R1-R12)
     - Semantic relationships
 
     Args:
