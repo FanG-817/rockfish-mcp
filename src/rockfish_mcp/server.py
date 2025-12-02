@@ -1042,11 +1042,6 @@ async def handle_list_tools() -> List[types.Tool]:
                             "description": "Optional entity label mappings for generated datasets",
                             "additionalProperties": True,
                         },
-                        "show_all_errors": {
-                            "type": "boolean",
-                            "description": "If true, show all validation errors. If false, show first 5 (default: false)",
-                            "default": False,
-                        },
                     },
                     "required": ["data_schema_config"],
                 },
