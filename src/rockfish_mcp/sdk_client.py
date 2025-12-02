@@ -226,11 +226,12 @@ class RockfishSDKClient:
                     "generation_workflow_id": generation_workflow_id,
                     "status": status,
                 }
-            generated_dataset = await generation_workflow.datasets().last()
+            # TODO
+            generated_datasets = await generation_workflow.datasets().collect()
             return {
                 "success": True,
                 "generation_workflow_id": generation_workflow_id,
-                "generated_dataset_id": generated_dataset.id,
+                "generated_dataset_id(s)": [generated_dataset.id for generated_dataset in generated_datasets],
             }
         elif tool_name == "plot_distribution":
             dataset_ids = arguments["dataset_ids"]
@@ -591,12 +592,11 @@ async def plot_distribution(conn, dataset_ids: list, column_name: str):
         buf.close()
         plt.close(fig.fig)  # Close the underlying matplotlib figure to free memory
         return img_str
-
+    if len(dataset_ids) != 2:
+        raise ValueError("current only support 2 datasets for comparison plotting")
     # Load dataset and convert to LocalDataset
-    dataset = await conn.get_dataset(dataset_ids[0])
-    dataset = await dataset.to_local(conn)
-    synthetic = await conn.get_dataset(dataset_ids[1])
-    synthetic = await synthetic.to_local(conn)
+    dataset = await get_local_dataset(conn, dataset_ids[0])
+    synthetic = await get_local_dataset(conn, dataset_ids[1])
 
     table = dataset.table
     field_type = table[column_name].type
