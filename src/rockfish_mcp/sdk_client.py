@@ -231,7 +231,9 @@ class RockfishSDKClient:
             return {
                 "success": True,
                 "generation_workflow_id": generation_workflow_id,
-                "generated_dataset_id(s)": [generated_dataset.id for generated_dataset in generated_datasets],
+                "generated_dataset_id(s)": [
+                    generated_dataset.id for generated_dataset in generated_datasets
+                ],
             }
         elif tool_name == "plot_distribution":
             dataset_ids = arguments["dataset_ids"]
@@ -592,6 +594,7 @@ async def plot_distribution(conn, dataset_ids: list, column_name: str):
         buf.close()
         plt.close(fig.fig)  # Close the underlying matplotlib figure to free memory
         return img_str
+
     if len(dataset_ids) != 2:
         raise ValueError("current only support 2 datasets for comparison plotting")
     # Load dataset and convert to LocalDataset
