@@ -432,25 +432,6 @@ async def handle_list_tools() -> List[types.Tool]:
                 "required": ["query"],
             },
         ),
-        types.Tool(
-            name="query_dataset",
-            description="Execute a query against a specific dataset and return results in CSV format",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "id": {
-                        "type": "string",
-                        "description": "Dataset ID to query against",
-                    },
-                    "query": {"type": "string", "description": "The query to execute"},
-                    "project_id": {
-                        "type": "string",
-                        "description": "Optional project ID to execute the query in",
-                    },
-                },
-                "required": ["id", "query"],
-            },
-        ),
     ]
 
     # Add Manta tools only if Manta client is initialized

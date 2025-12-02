@@ -10,8 +10,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 pip install -e .
 
 # Install from requirements.txt (for development)
+# Note: The requirements.txt uses --find-links to access the Rockfish package repository
 pip install -r requirements.txt
 ```
+
+**Important**: The Rockfish SDK package is hosted on a custom package repository at `https://packages.rockfish.ai`. The [requirements.txt](requirements.txt) file uses `--find-links` directive to enable pip to discover and install packages from this repository.
 
 ### Running the Server
 ```bash
@@ -26,6 +29,8 @@ rockfish-mcp
 The application requires these environment variables:
 - `ROCKFISH_API_KEY`: Your Rockfish API key (required)
 - `ROCKFISH_API_URL`: API URL for Rockfish API (defaults to https://api.rockfish.ai)
+- `ROCKFISH_ORGANIZATION_ID`: Organization ID (optional - uses default if not set)
+- `ROCKFISH_PROJECT_ID`: Project ID (optional - uses default if not set)
 - `MANTA_API_URL`: API URL for Manta service (optional - Manta tools only appear if this is set)
 
 Create a `.env` file with these variables for local development:
@@ -33,6 +38,26 @@ Create a `.env` file with these variables for local development:
 # Copy the example and edit with your values
 cp .env.example .env
 ```
+
+### Code Formatting
+This project uses black and isort for code formatting:
+```bash
+# Format code before committing
+isort src/rockfish_mcp/
+black src/rockfish_mcp/
+
+# Check formatting without modifying files
+isort --check-only src/rockfish_mcp/
+black --check src/rockfish_mcp/
+```
+
+### Testing with MCP Inspector
+Use the MCP Inspector to test the server before connecting to Claude Desktop:
+```bash
+# Start the inspector (replace with your actual Python path)
+npx @modelcontextprotocol/inspector /path/to/.venv/bin/python -m rockfish_mcp.server
+```
+The Inspector provides an interactive web interface to test all available tools.
 
 ## Architecture Overview
 
@@ -52,7 +77,7 @@ src/rockfish_mcp/
 
 **Server (`server.py`)**: The main MCP server that:
 - Defines tools across multiple resource categories
-  - Rockfish API: Databases, Worker Sets, Workflows, Models, Projects, Datasets (22 tools, always available)
+  - Rockfish API: Databases, Worker Sets, Workflows, Models, Projects, Datasets (21 tools, always available)
   - Manta Service: Prompt Management, Data Manipulation, LLM Processing (10 tools, conditional)
   - SDK Tools: Synthetic Data Generation workflow tools (9 tools, always available)
 - Conditionally loads Manta tools only when `MANTA_API_URL` environment variable is set

@@ -201,27 +201,5 @@ class RockfishClient:
                 response.raise_for_status()
                 return {"result": response.text}
 
-        elif tool_name == "query_dataset":
-            dataset_id = arguments["id"]
-            query = arguments["query"]
-            project_id = arguments.get("project_id")
-
-            # Prepare headers for dataset query request
-            query_headers = {
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "text/plain",
-            }
-            if project_id:
-                query_headers["X-Project-ID"] = project_id
-
-            # Make dataset query request with text/plain content
-            url = f"{self.api_url}/dataset/{dataset_id}/query"
-            async with httpx.AsyncClient() as client:
-                response = await client.request(
-                    method="POST", url=url, headers=query_headers, content=query
-                )
-                response.raise_for_status()
-                return {"result": response.text}
-
         else:
             raise ValueError(f"Unknown tool: {tool_name}")
