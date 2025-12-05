@@ -78,7 +78,7 @@ class DataSchemaValidator:
         self._validate_domain_params()
 
         # Validate MEASUREMENT dependencies (R11)
-        self._validate_derivation_params()
+        # self._validate_derivation_params()
 
         # Validate column business rules (R12)
         self._validate_business_rules()
@@ -96,6 +96,7 @@ class DataSchemaValidator:
                     if column.domain.type == DomainType.TIMESERIES:
                         self._validate_timeseries_params(column.domain.params, location)
 
+    # Will be handled in https://github.com/Rockfish-Data/cuttlefish/pull/1102
     def _validate_timeseries_params(self, params: TimeseriesParams, location: str):
         """
         Validate TimeseriesParams peak hour ranges (SDK doesn't validate these).
@@ -145,43 +146,44 @@ class DataSchemaValidator:
 
                     # R11: Check for MEASUREMENT→MEASUREMENT dependencies - unsolved issue?
                     self._validate_measurement_dependencies(entity, column, location)
+    # This is incorrect. The correct validation is added in https://github.com/Rockfish-Data/cuttlefish/pull/1099
+    # def _validate_measurement_dependencies(
+    #     self, entity: Entity, column: Column, location: str
+    # ):
+    #     """
+    #     R11: MEASUREMENT derived columns cannot depend on same-entity MEASUREMENT columns.
 
-    def _validate_measurement_dependencies(
-        self, entity: Entity, column: Column, location: str
-    ):
-        """
-        R11: MEASUREMENT derived columns cannot depend on same-entity MEASUREMENT columns.
+    #     This is a critical validator that prevents runtime KeyError during generation.
+    #     MEASUREMENT columns are generated in arbitrary order, so dependencies between
+    #     them in the same entity will fail.
 
-        This is a critical validator that prevents runtime KeyError during generation.
-        MEASUREMENT columns are generated in arbitrary order, so dependencies between
-        them in the same entity will fail.
+    #     The SDK does NOT validate this.
+    #     """
+    #     if (
+    #         column.column_category_type == ColumnCategoryType.MEASUREMENT
+    #         and column.derivation
+    #     ):
+    #         # Check each dependency
+    #         for dep_col_name in column.derivation.dependencies:
+    #             # Find dependency column in same entity
+    #             dep_col = next(
+    #                 (col for col in entity.columns if col.name == dep_col_name), None
+    #             )
 
-        The SDK does NOT validate this.
-        """
-        if (
-            column.column_category_type == ColumnCategoryType.MEASUREMENT
-            and column.derivation
-        ):
-            # Check each dependency
-            for dep_col_name in column.derivation.dependencies:
-                # Find dependency column in same entity
-                dep_col = next(
-                    (col for col in entity.columns if col.name == dep_col_name), None
-                )
-
-                if (
-                    dep_col
-                    and dep_col.column_category_type == ColumnCategoryType.MEASUREMENT
-                ):
-                    self.errors.append(
-                        ValidationError(
-                            rule="R11",
-                            message=f"MEASUREMENT derived column '{column.name}' cannot depend on another MEASUREMENT column '{dep_col_name}' in the same entity (currently unsupported)",
-                            location=location,
-                            suggestion=f"Change '{dep_col_name}' to column_category_type='metadata', OR restructure to avoid MEASUREMENT->MEASUREMENT dependencies",
-                        )
-                    )
-
+    #             if (
+    #                 dep_col
+    #                 and dep_col.column_category_type == ColumnCategoryType.MEASUREMENT
+    #             ):
+    #                 self.errors.append(
+    #                     ValidationError(
+    #                         rule="R11",
+    #                         message=f"MEASUREMENT derived column '{column.name}' cannot depend on another MEASUREMENT column '{dep_col_name}' in the same entity (currently unsupported)",
+    #                         location=location,
+    #                         suggestion=f"Change '{dep_col_name}' to column_category_type='metadata', OR restructure to avoid MEASUREMENT->MEASUREMENT dependencies",
+    #                     )
+    #                 )
+    
+    # This is handled in https://github.com/Rockfish-Data/cuttlefish/pull/1097
     def _validate_business_rules(self):
         """Validate business logic rules."""
         for entity_idx, entity in enumerate(self.schema.entities):
