@@ -23,9 +23,6 @@ import matplotlib.pyplot as plt
 
 logger = logging.getLogger(__name__)
 
-# Import validators for comprehensive DataSchema validation
-from rockfish_mcp.validators import ValidationError, validate_dataschema_comprehensive
-
 
 class RockfishSDKClient:
     def __init__(
@@ -425,7 +422,7 @@ class RockfishSDKClient:
             cache_entry = {
                 "data_schema_config": data_schema_config,
             }
-            # TODO: entity_labels?
+
             if entity_labels:
                 cache_entry["entity_labels"] = entity_labels
 
@@ -466,9 +463,7 @@ class RockfishSDKClient:
             # Retrieve and remove from cache
             cache_entry = self._cache.pop(schema_config_id)
             data_schema_dict = cache_entry["data_schema_config"]
-            entity_labels = cache_entry.get(
-                "entity_labels"
-            )  # TODO: make use of entity_labels in GenerateFromDataSchema
+            entity_labels = cache_entry.get("entity_labels")
 
             # Convert dict to DataSchema (should not fail since we already validated)
             try:
@@ -647,23 +642,6 @@ def _validate_data_schema(schema_dict: Dict[str, Any]) -> Dict[str, Any]:
     try:
         # SDK validates all levels automatically via __attrs_post_init__ methods
         data_schema = rf.converter.structure(schema_dict, ra.ent.DataSchema)
-
-        # Run comprehensive validation via validators.py
-        comprehensive_errors = validate_dataschema_comprehensive(data_schema)
-
-        if comprehensive_errors:
-            # Format errors same way as structure error path
-            # Show ALL validator errors (no limiting)
-            error_list = []
-            for idx, err in enumerate(comprehensive_errors, 1):
-                error_list.append(f"{idx}. {err.location}: {err.message}")
-
-            return {
-                "valid": False,
-                "error_count": len(comprehensive_errors),
-                "error_message": "\n\n".join(error_list),
-                "summary": f"Validation failed: {len(comprehensive_errors)} error(s)",
-            }
 
         return {
             "valid": True,
